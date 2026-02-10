@@ -1,13 +1,14 @@
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.time import Time
 
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import FollowWaypoints
 
 
 def make_waypoints(node: Node):
-    now = node.get_clock().now().to_msg()
+    # now = node.get_clock().now().to_msg()
     waypoints = []
 
     def euler_to_quaternion(roll=0.0, pitch=0.0, yaw=0.0):
@@ -22,7 +23,7 @@ def make_waypoints(node: Node):
 
     def pose(x, y, yaw):
         pose = PoseStamped()
-        pose.header.stamp = now
+        pose.header.stamp = Time(seconds=0).to_msg()
         pose.header.frame_id = 'map'
         pose.pose.position.x = x
         pose.pose.position.y = y
