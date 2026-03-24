@@ -5,7 +5,8 @@ from rclpy.node import Node
 
 from geometry_msgs.msg import PoseStamped, Quaternion
 from nav2_msgs.action import NavigateToPose
-
+from std_msgs.msg import Int32
+from action_msgs.msg import GoalStatus
 
 def euler_to_quaternion(roll=0.0, pitch=0.0, yaw=0.0) -> Quaternion:
     q = Quaternion()
@@ -30,7 +31,6 @@ def make_pose(node: Node, x: float, y: float, yaw: float, frame_id: str = "map")
 class PatrolNavigator(Node):
     def __init__(self):
         super().__init__("patrol_navigator")
-        self.action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
 
         # (x, y, yaw)
         self.initial_pose = (0.0, 0.0, 0.0)
@@ -45,8 +45,25 @@ class PatrolNavigator(Node):
         self.is_repeating = True
         # 現在の目標ウェイポイントのインデックス
         self.index = 0
-
+        # 出発点のインデックス
+        self.initial_pose_index = len(self.waypoints) - 1
+        # バッテリ残量の閾値
+        self.battery_threshold = 60
+        # バッテリー残量が少ない場合に出発点に戻るためのモードのフラグ
+        self.is_returning_to_initial_pose = False
+        
+        # 現在の目標ゴールハンドル
         self.current_goal_handle = None
+
+        # ウェイポイントを送信するためのActionClient
+        self.action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
+        # バッテリー状態を受信するサブスクライバ
+        self.buttery_state_sub = self.create_subscription(
+            Int32,
+            "/battery_state",
+            self.battery_state_callback,
+            10,
+        )
 
     def start(self):
         if not self.action_client.wait_for_server(timeout_sec=5.0):
@@ -88,6 +105,15 @@ class PatrolNavigator(Node):
 
         self.get_logger().info(f"Waypoint[{self.index}] done. status={status}, result={result}")
 
+        # バッテリー残量が少ない場合は出発点に戻る
+        if self.is_returning_to_initial_pose:
+            if self.index == self.initial_pose_index and status == GoalStatus.STATUS_SUCCEEDED:
+                self.get_logger().info("Arrived home. Shutdown.")
+            else:
+                self.get_logger().warn("Returning-home goal did not succeed (canceled/aborted). Shutdown anyway.")
+            rclpy.shutdown()
+            return
+
         # 次へウェイポイントを進める
         self.index += 1
         
@@ -104,6 +130,26 @@ class PatrolNavigator(Node):
                 return
 
         self.send_next_goal()
+
+    def battery_state_callback(self, msg: Int32):
+        # すでに出発点に戻るモードに入っているなら何もしない
+        if self.is_returning_to_initial_pose:
+            return
+        
+        battery_level = msg.data
+        self.get_logger().info(f"Battery level: {battery_level}%")
+
+        if battery_level <= self.battery_threshold:
+            self.get_logger().warn("Battery low! Switching to return-home mode.")
+            # 出発点に帰るフラグを立てる
+            self.is_returning_to_initial_pose = True
+            # 出発点のインデックスに切り替える
+            self.is_repeating = False
+            # ゴールのインデックスを出発点に切り替える
+            self.index = self.initial_pose_index
+
+            # 現在のゴールをキャンセルする
+            self.send_next_goal()
 
 
 def main(args=None):

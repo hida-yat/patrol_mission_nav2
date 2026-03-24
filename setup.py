@@ -27,6 +27,7 @@ setup(
             'waypoints_follower = patrol_mission.waypoints_follower:main',
             'pose_navigator = patrol_mission.pose_navigator:main',
             'poses_navigator = patrol_mission.poses_navigator:main',
+            'patrol_navigator = patrol_mission.patrol_navigator:main',
         ],
     },
 )
